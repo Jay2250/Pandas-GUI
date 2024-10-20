@@ -54,89 +54,29 @@ class PandasApp(BoxLayout):
         if self.df is not None:
             self.display_data(self.df.head(10))
 
+    def show_tail(self):
+        if self.df is not None:
+            self.display_data(self.df.tail(10))
+
+    def show_sample(self):
+        if self.df is not None:
+            self.display_data(self.df.sample(10))
+
+
     def show_info(self):
         if self.df is not None:
-            # Create a popup to show the DataFrame info
-            popup = Popup(title='Data Information', size_hint=(0.9, 0.9))
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                self.df.info()  # This writes the output to the buffer instead of stdout
+            info_str = buffer.getvalue()
+            self.display_data(info_str)  # Send the captured info string to display
 
-            # Create a GridLayout for the table
-            layout = GridLayout(cols=3, padding=10, spacing=10)
-
-            # Add headers
-            layout.add_widget(Label(text='Column', bold=True))
-            layout.add_widget(Label(text='Non-Null Count', bold=True))
-            layout.add_widget(Label(text='Dtype', bold=True))
-
-            # Get DataFrame info
-            info_dict = {
-                'Column': [],
-                'Non-Null Count': [],
-                'Dtype': []
-            }
-
-            # Collect data from DataFrame info
-            for col in self.df.columns:
-                info_dict['Column'].append(col)
-                info_dict['Non-Null Count'].append(f"{self.df[col].count()} non-null")
-                info_dict['Dtype'].append(str(self.df[col].dtype))
-
-            # Fill in the data into the layout
-            for i in range(len(info_dict['Column'])):
-                layout.add_widget(Label(text=info_dict['Column'][i]))
-                layout.add_widget(Label(text=info_dict['Non-Null Count'][i]))
-                layout.add_widget(Label(text=info_dict['Dtype'][i]))
-
-            # Wrap layout in ScrollView for scrolling capability
-            scroll_view = ScrollView(size_hint=(1, 1))
-            scroll_view.add_widget(layout)
-
-            # Add scroll_view to popup
-            popup.content = scroll_view
-            popup.open()
 
     def show_describe(self):
         if self.df is not None:
-            describe_df = self.df.describe()
-            popup = Popup(title='Data Description', size_hint=(0.9, 0.9))
-
-            # Create a BoxLayout to allow for horizontal and vertical scrolling
-            layout = GridLayout(cols=len(describe_df.columns) + 2,
-                                padding=10, spacing=10, size_hint_y=None)
-            layout.bind(minimum_height=layout.setter(
-                'height'))  # Enable dynamic height
-
-            # Add the header for 'Statistic'
-            layout.add_widget(Label(text='Statistic', bold=True,
-                            size_hint_y=None, height=30))
-
-            # Add headers for each column in the DataFrame
-            for col in describe_df.columns:
-                layout.add_widget(
-                    Label(text=col, bold=True, size_hint_y=None, height=30))
-
-            # Fill in the data into the layout with index for each row
-            for idx, row in describe_df.iterrows():
-                # Add the index label for the statistic (e.g., count, mean, std, etc.)
-                layout.add_widget(
-                    Label(text=str(idx), size_hint_y=None, height=30))
-
-                # Add each value in the row to the layout
-                for value in row:
-                    layout.add_widget(Label(text=f"{value:.2f}" if isinstance(value, (int, float)) else str(value),
-                                            size_hint_y=None, height=30))
-
-                # Spacer for better readability
-                # Spacer between rows
-                layout.add_widget(Label(size_hint_y=None, height=10))
-
-            # Wrap the layout in a ScrollView for scrolling capability
-            scroll_view = ScrollView(size_hint=(
-                1, 1), do_scroll_x=True, do_scroll_y=True)
-            scroll_view.add_widget(layout)
-
-            # Add scroll_view to the popup
-            popup.content = scroll_view
-            popup.open()
+            _df = self.df.describe().round(2)
+            _df.index = ['count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max']
+            self.display_data(_df)
 
 
 
@@ -217,29 +157,84 @@ class PandasApp(BoxLayout):
             text=message), size_hint=(0.8, 0.8))
         popup.open()
 
+
     def display_data(self, data):
         # Clear previous data
         self.ids.data_grid.clear_widgets()
 
         if isinstance(data, pd.DataFrame):
-            # Add column headers
+            # Add column headers including the first column for index (for describe())
+            self.ids.data_grid.add_widget(Label(text="Index", bold=True, size_hint_y=None, height='40dp', size_hint_x=None, width=150))
             for column in data.columns:
-                header = Label(text=column, bold=True,
-                               size_hint_y=None, height='40dp')
+                header = Label(text=column, bold=True, size_hint_y=None, height='40dp', size_hint_x=None, width=150)
                 self.ids.data_grid.add_widget(header)
 
-            # Add data rows
+            # Add data rows including the index as the first column
             for index, row in data.iterrows():
+                self.ids.data_grid.add_widget(Label(text=str(index), size_hint_x=None, width=150, height=40))
                 for value in row:
-                    button = Button(text=str(value), size_hint_x=None, width=100)
-                    button.bind(on_press=lambda btn,
-                                row=row: self.on_row_click(row))
+                    button = Button(text=str(value), size_hint_x=None, width=150, height=40)
+                    button.bind(on_press=lambda btn, row_index=row: self.on_row_click(row_index))
                     self.ids.data_grid.add_widget(button)
 
-            # Update the number of columns dynamically
-            # Set the number of columns
-            self.ids.data_grid.cols = len(data.columns)
+            # Set the number of columns based on DataFrame columns + 1 for index
+            self.ids.data_grid.cols = len(data.columns) + 1
 
+        elif isinstance(data, str):
+            # Handle string data (already processed info or other text)
+            label = Label(text=data, size_hint_y=None, height='40dp', halign='left', valign='top', text_size=(self.width, None))
+            label.bind(size=label.setter('text_size'))
+            self.ids.data_grid.add_widget(label)
+
+        else:
+            # In case of summary statistics like describe(), render them similarly to dataframes
+            if isinstance(data, pd.DataFrame):
+                data_str = data.to_string()
+                label = Label(text=data_str, size_hint_y=None, height='40dp', halign='left', valign='top', text_size=(self.width, None))
+                label.bind(size=label.setter('text_size'))
+                self.ids.data_grid.add_widget(label)
+
+        # Update layout settings to ensure proper size display in the ScrollView
+        self.ids.data_grid.bind(minimum_width=self.ids.data_grid.setter('width'))
+        self.ids.data_grid.bind(minimum_height=self.ids.data_grid.setter('height'))
+
+    def on_row_click(self, row_index):
+        print(f"Row clicked: {row_index}")  # Debugging print
+        # Create a popup to edit the entire row
+        edit_popup = Popup(title="Edit Row", size_hint=(0.8, 0.8))
+        popup_layout = BoxLayout(orientation='vertical')
+    
+        # Get the row data
+        row_data = self.df.iloc[row_index]
+    
+        # Create TextInputs for each value in the row
+        text_inputs = []
+        for col_index, value in enumerate(row_data):
+            text_input = TextInput(text=str(value), multiline=False)
+            text_inputs.append(text_input)
+            popup_layout.add_widget(text_input)
+    
+        # Create a button to save changes
+        save_button = Button(text="Save", size_hint_y=None, height='40dp')
+        save_button.bind(on_press=lambda btn: self.save_row_values(
+            row_index, text_inputs))
+    
+        popup_layout.add_widget(save_button)
+        edit_popup.content = popup_layout
+        edit_popup.open()
+
+
+    def save_row_values(self, index, text_inputs):
+        try:
+            # Update the DataFrame with the new values
+            for col_index, text_input in enumerate(text_inputs):
+                self.df.iat[index, col_index] = float(
+                    text_input.text)  # Update value in DataFrame
+
+            self.display_data(self.df)  # Refresh the display
+            self.show_popup("Success", "Row updated successfully!")
+        except ValueError:
+            self.show_popup("Error", "Invalid input! Please enter numeric values.")
 
     def export_data(self):
         if self.df is not None:
